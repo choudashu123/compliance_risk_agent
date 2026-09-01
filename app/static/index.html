@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compliance &amp; Risk Agent</title>
+<link rel="stylesheet" href="/style.css?v=3">
+</head>
+<body>
+<header>
+  <h1>⚖️ Compliance &amp; Risk Agent</h1>
+  <button id="reset" class="ghost">Reset demo</button>
+</header>
+
+<nav>
+  <button data-tab="upload" class="active">📁 Upload</button>
+  <button data-tab="chat">💬 Chat</button>
+  <button data-tab="approvals">📋 Approvals</button>
+  <button data-tab="registers">🗂️ Registers</button>
+</nav>
+
+<main>
+  <section id="upload" class="tab active">
+    <h2>Upload compliance PDFs</h2>
+    <input type="file" id="files" multiple accept="application/pdf">
+    <button id="doUpload">Ingest</button>
+    <pre id="uploadOut"></pre>
+  </section>
+
+  <section id="chat" class="tab">
+    <h2>Ask a compliance question</h2>
+    <div id="log"></div>
+    <div class="row">
+      <input type="text" id="msg" placeholder="Can we onboard an EU customer under GDPR based on our uploaded docs?">
+      <button id="send">Send</button>
+    </div>
+  </section>
+
+  <section id="approvals" class="tab">
+    <h2>Human gate</h2>
+    <button id="refreshApprovals" class="ghost">Refresh</button>
+    <div id="approvalsOut"></div>
+  </section>
+
+  <section id="registers" class="tab">
+    <h2>System of record</h2>
+    <button id="refreshRegisters" class="ghost">Refresh</button>
+    <div id="registersOut"></div>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>
