@@ -723,6 +723,11 @@ def _node_draft(state: AgentState) -> AgentState:
     drafts = state.get("drafts")
     if not drafts:
         return {"drafted": {}}
+    # A Finding/Risk with the same title is reused rather than duplicated. Detect
+    # that up front so the UI can say "already tracked" instead of "drafted" —
+    # otherwise a repeat question looks like it silently did nothing.
+    pre_finding = _finding_by_title(drafts["finding"]["title"])
+    pre_risk = _risk_by_title(drafts["risk"]["title"])
     fid = draft_finding.invoke({
         "title": drafts["finding"]["title"],
         "description": drafts["finding"]["description"],
@@ -734,7 +739,14 @@ def _node_draft(state: AgentState) -> AgentState:
         "inherent_score": drafts["risk"]["inherent_score"],
         "finding_id": fid,
     })
-    return {"drafted": {"finding_id": fid, "risk_id": rid}}
+    f, r = get_finding(fid), get_risk(rid)
+    return {"drafted": {
+        "finding_id": fid,
+        "risk_id": rid,
+        "finding_status": (f or {}).get("status"),
+        "risk_status": (r or {}).get("status"),
+        "reused": bool(pre_finding or pre_risk),
+    }}
 
 
 def _node_guard(state: AgentState) -> AgentState:

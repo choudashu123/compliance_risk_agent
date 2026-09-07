@@ -54,13 +54,21 @@ built as a generalized **LLM-based RAG** pipeline (not keyword rules):
 
 ---
 
-## 2. Install
+## 2. Quick Start (One Command)
+
+Clone the repository and run:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+./run.sh
 ```
+
+`run.sh` automatically:
+1. Creates `.env` from `.env.example` (if not present)
+2. Sets up the `.venv` virtual environment and installs `requirements.txt`
+3. Generates sample PDFs in `sample_docs/`
+4. Frees the port and starts the server on **http://localhost:8000**
+
+*(Manual setup if preferred: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && uvicorn app.main:app --reload`)*
 
 ---
 
@@ -73,7 +81,7 @@ pip install -r requirements.txt
 ```
 
 Then open **http://localhost:8000**. `run.sh` frees the port first, so running it
-again is a clean **restart**. It also generates the sample PDFs on first run.
+again is a clean **restart**.
 
 ```bash
 ./run.sh 8080        # different port
@@ -260,6 +268,7 @@ contracts are unchanged from the pre-RAG version.
 |---------|-----|
 | `Form data requires "python-multipart"` | `pip install -r requirements.txt` (it's included). |
 | Chat says *"No documents have been ingested yet"* | Upload the PDFs first (Upload tab, or `python demo.py`). |
+| Chat says *"Drafted / Already tracked FND-01"* but **Approvals is empty** | You already approved that finding/risk in an earlier session — a same-titled item is reused, not duplicated. It's now in **Registers** as `official`. Click **Reset demo** to start a fresh proposed cycle. |
 | First upload is slow / needs internet | `fastembed` downloads the embedding model once and caches it locally; subsequent runs are offline and fast. |
 | Chat answer says the model "could not be reached" | The key is wrong or has no quota/model access — the exact provider error is in the answer, the `warnings`, and the server console. Check `GET /api/health`. |
 | Key is in `.env` but `GET /api/health` shows `mock` / `dotenv_loaded: false` | Fixed: `.env` is now loaded by absolute path. If still stale, confirm the file is at the repo root next to `app/` and restart the server. |

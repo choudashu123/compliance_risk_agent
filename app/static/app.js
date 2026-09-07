@@ -73,8 +73,16 @@ $("#send").onclick = async () => {
   meta.className = "meta";
   const cites = (res.citations || []).map((c) => `${c.filename}#${c.chunk_id}`).join(", ");
   let html = cites ? `📎 Citations: ${cites}` : "";
-  if (res.drafted && res.drafted.finding_id)
-    html += `<br>📝 Drafted ${res.drafted.finding_id} + ${res.drafted.risk_id} (see Approvals)`;
+  const d = res.drafted || {};
+  if (d.finding_id) {
+    const ids = `${d.finding_id} + ${d.risk_id}`;
+    if (d.finding_status === "official" || d.risk_status === "official")
+      html += `<br>✅ Already tracked as ${ids}, approved earlier — see Registers (use “Reset demo” to start fresh)`;
+    else if (d.reused)
+      html += `<br>📝 Already drafted as ${ids} — pending in Approvals`;
+    else
+      html += `<br>📝 Drafted ${ids} (see Approvals)`;
+  }
   if (res.warnings && res.warnings.length)
     html += `<br><span class="warn">⚠ ${res.warnings.join(" ")}</span>`;
   meta.innerHTML = html;

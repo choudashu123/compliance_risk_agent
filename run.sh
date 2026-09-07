@@ -29,13 +29,26 @@ for arg in "$@"; do
 done
 [[ "$RELOAD" == 1 ]] && UVICORN_ARGS+=("--reload")
 
-# --- pick the interpreter (prefer the project venv) --------------------------
-if [[ -x .venv/bin/python ]]; then
-  PY=.venv/bin/python
-else
-  PY="$(command -v python3 || command -v python)"
-  echo "[run] .venv not found — using $PY (create it with: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt)"
+# --- auto-bootstrap .env if missing ------------------------------------------
+if [[ ! -f .env && -f .env.example ]]; then
+  echo "[run] .env not found — copying from .env.example"
+  cp .env.example .env
 fi
+
+# --- auto-bootstrap virtual environment & requirements -----------------------
+if [[ ! -x .venv/bin/python ]]; then
+  echo "[run] .venv not found — creating virtual environment (.venv)..."
+  python3 -m venv .venv
+  echo "[run] installing dependencies from requirements.txt..."
+  .venv/bin/pip install -r requirements.txt
+  touch .venv/.requirements_installed
+elif [[ -f requirements.txt && requirements.txt -nt .venv/.requirements_installed ]]; then
+  echo "[run] requirements.txt updated — syncing dependencies..."
+  .venv/bin/pip install -r requirements.txt
+  touch .venv/.requirements_installed
+fi
+
+PY=.venv/bin/python
 
 # --- free the port (kill whatever is listening on it) -----------------------
 if lsof -ti "tcp:${PORT}" >/dev/null 2>&1; then
