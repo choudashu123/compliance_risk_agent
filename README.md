@@ -56,17 +56,22 @@ built as a generalized **LLM-based RAG** pipeline (not keyword rules):
 
 ## 2. Quick Start (One Command)
 
-Clone the repository and run:
-
+### macOS / Linux
 ```bash
 ./run.sh
 ```
 
-`run.sh` automatically:
-1. Creates `.env` from `.env.example` (if not present)
-2. Sets up the `.venv` virtual environment and installs `requirements.txt`
-3. Generates sample PDFs in `sample_docs/`
-4. Frees the port and starts the server on **http://localhost:8000**
+### Windows
+```cmd
+run.bat
+```
+*(or in PowerShell: `.\run.ps1`)*
+
+The startup scripts automatically:
+1. Create `.env` from `.env.example` (if not present)
+2. Set up the `.venv` virtual environment and install `requirements.txt`
+3. Generate sample PDFs in `sample_docs/`
+4. Free the port and start the server on **http://localhost:8000**
 
 *(Manual setup if preferred: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && uvicorn app.main:app --reload`)*
 
@@ -253,7 +258,9 @@ contracts are unchanged from the pre-RAG version.
 ├── sample_docs/             generated demo PDFs
 ├── data/grc.db              SQLite database (created at runtime)
 ├── data/chroma/             vector store persistence (created at runtime)
-├── run.sh                   start / restart the server (frees the port first)
+├── run.sh                   start / restart the server (macOS/Linux)
+├── run.bat                  start / restart the server (Windows Command Prompt)
+├── run.ps1                  start / restart the server (Windows PowerShell)
 ├── demo.py                  sample-PDF generator + CLI end-to-end demo
 ├── tests/test_v0.py         acceptance tests
 ├── .env / .env.example      configuration

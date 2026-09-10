@@ -68,8 +68,8 @@ def _env(*names: str, default: Optional[str] = None) -> Optional[str]:
     """First non-empty value among the given env var names, else ``default``."""
     for n in names:
         v = os.getenv(n)
-        if v:
-            return v
+        if v and v.strip():
+            return v.strip()
     return default
 
 
@@ -77,14 +77,17 @@ GEMINI_API_KEY = _env("GEMINI_API_KEY", "GOOGLE_API_KEY")
 OPENAI_API_KEY = _env("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = _env("ANTHROPIC_API_KEY")
 
-# Each LangChain integration reads its own canonical var — mirror ours into them.
+# Each LangChain integration reads its own canonical var — mirror ours into them,
+# and remove empty keys from os.environ so SDKs do not fail trying to use empty strings.
 for _canonical, _value in (
     ("GOOGLE_API_KEY", GEMINI_API_KEY),
     ("OPENAI_API_KEY", OPENAI_API_KEY),
     ("ANTHROPIC_API_KEY", ANTHROPIC_API_KEY),
 ):
     if _value:
-        os.environ.setdefault(_canonical, _value)
+        os.environ[_canonical] = _value
+    elif _canonical in os.environ and not os.environ[_canonical].strip():
+        del os.environ[_canonical]
 
 GEMINI_MODEL = _env("GEMINI_MODEL", "GRC_GEMINI_MODEL", default="gemini-2.5-flash")
 OPENAI_MODEL = _env("OPENAI_MODEL", "GRC_OPENAI_MODEL", default="gpt-4o-mini")

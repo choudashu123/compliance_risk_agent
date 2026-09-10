@@ -1,6 +1,12 @@
 """Acceptance tests: ingest, discovery, citation guard, drafting, human gate."""
 import os
+import sys
 import tempfile
+
+# Ensure project root is in sys.path
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 import pytest
 from fastapi.testclient import TestClient
