@@ -34,7 +34,7 @@ warnings.filterwarnings("ignore", message=r"Pydantic serializer warnings",
 import chromadb
 from chromadb import EmbeddingFunction
 from fastapi import FastAPI, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastembed import TextEmbedding
 from langchain_core.tools import tool
@@ -165,7 +165,13 @@ CHUNK_OVERLAP = int(_env("CHUNK_OVERLAP", "GRC_CHUNK_OVERLAP", default="100"))
 DB_PATH = os.getenv("GRC_DB", os.path.join(_ROOT, "data", "grc.db"))
 CHROMA_DIR = os.getenv("GRC_CHROMA_DIR", os.path.join(os.path.dirname(DB_PATH), "chroma"))
 SAMPLE_DOCS = os.path.join(_ROOT, "sample_docs")
-STATIC_DIR = os.path.join(_ROOT, "app", "static") if os.path.isdir(os.path.join(_ROOT, "app", "static")) else os.path.join(_ROOT, "static")
+os.makedirs(SAMPLE_DOCS, exist_ok=True)
+if os.path.isdir(os.path.join(_ROOT, "static")):
+    STATIC_DIR = os.path.join(_ROOT, "static")
+elif os.path.isdir(os.path.join(_ROOT, "app", "static")):
+    STATIC_DIR = os.path.join(_ROOT, "app", "static")
+else:
+    STATIC_DIR = os.path.join(_ROOT, "static")
 
 
 # =============================================================================
@@ -924,11 +930,24 @@ def reset():
 
 @app.get("/")
 def index():
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"),
-                        headers={"Cache-Control": "no-store"})
+    index_file = os.path.join(STATIC_DIR, "index.html") if os.path.isdir(STATIC_DIR) else ""
+    if index_file and os.path.isfile(index_file):
+        return FileResponse(index_file, headers={"Cache-Control": "no-store"})
+    return HTMLResponse(
+        "<!DOCTYPE html><html><head><title>Compliance & Risk Agent API</title></head>"
+        "<body style='font-family:sans-serif;padding:2rem;line-height:1.6;'>"
+        "<h2>Compliance & Risk Assessment Agent API is running</h2>"
+        "<p>Static UI directory was not found. API endpoints and documentation are active:</p>"
+        "<ul>"
+        "<li><a href='/docs'>Interactive API Documentation (Swagger)</a></li>"
+        "<li><a href='/api/health'>Health Check (/api/health)</a></li>"
+        "<li><a href='/api/registers'>Current Registers (/api/registers)</a></li>"
+        "</ul></body></html>"
+    )
 
 
-app.mount("/", _NoCacheStatic(directory=STATIC_DIR), name="static")
+if os.path.isdir(STATIC_DIR):
+    app.mount("/", _NoCacheStatic(directory=STATIC_DIR), name="static")
 
 
 if __name__ == "__main__":

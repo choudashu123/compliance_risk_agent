@@ -5,12 +5,18 @@
 """
 import json
 import os
+import sys
 import textwrap
+
+# Ensure project root is always in sys.path so demo.py works from any directory
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 from reportlab.lib.pagesizes import LETTER
 from reportlab.pdfgen import canvas
 
-_HERE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sample_docs")
+_HERE = os.path.join(_ROOT, "sample_docs")
 
 _DOCS = {
     "1_GDPR_Art28_DPA_Requirements.pdf": """
@@ -98,21 +104,46 @@ def make_sample_pdfs():
 
 
 def main():
+    if "--make-pdfs-only" in sys.argv or "--generate-only" in sys.argv:
+        pdfs = make_sample_pdfs()
+        print(f"[demo] Generated {len(pdfs)} sample PDFs into {_HERE}:")
+        for p in pdfs:
+            print(f"  - {p}")
+        return
+
+    # Always generate sample PDFs first so they exist regardless of app setup
+    make_sample_pdfs()
+
     from fastapi.testclient import TestClient
 
-    from app import SAMPLE_DOCS, app
+    try:
+        from app import SAMPLE_DOCS, app
+    except (ImportError, ModuleNotFoundError):
+        try:
+            from app.main import SAMPLE_DOCS, app
+        except Exception as err:
+            raise RuntimeError(
+                f"Could not import application from app.py or app/main.py: {err}"
+            ) from err
 
     def show(title, obj):
         print(f"\n=== {title} ===")
         print(json.dumps(obj, indent=2, default=str))
 
-    make_sample_pdfs()
     client = TestClient(app)
     client.post("/api/reset")
 
-    files = [("files", (n, open(os.path.join(SAMPLE_DOCS, n), "rb"), "application/pdf"))
-             for n in sorted(os.listdir(SAMPLE_DOCS)) if n.endswith(".pdf")]
-    show("UPLOAD", client.post("/api/upload", files=files).json()["ingested"])
+    docs_dir = SAMPLE_DOCS if (SAMPLE_DOCS and os.path.isdir(SAMPLE_DOCS)) else _HERE
+    pdf_names = sorted(n for n in os.listdir(docs_dir) if n.endswith(".pdf"))
+    opened_files = []
+    try:
+        for name in pdf_names:
+            opened_files.append((name, open(os.path.join(docs_dir, name), "rb")))
+        files = [("files", (name, f, "application/pdf")) for name, f in opened_files]
+        show("UPLOAD", client.post("/api/upload", files=files).json().get("ingested", []))
+    finally:
+        for _, f in opened_files:
+            f.close()
 
     chat = client.post("/api/chat", json={
         "message": "Can we onboard an EU customer under GDPR based on our uploaded docs?"
@@ -122,13 +153,16 @@ def main():
     pend = client.get("/api/approvals").json()
     show("PENDING APPROVALS", pend)
 
-    fid = pend["findings"][0]["id"]
-    rid = pend["risks"][0]["id"]
-    show("APPROVE FINDING", client.post(f"/api/approvals/finding/{fid}/approve").json())
-    show("GRADE RISK", client.post(f"/api/approvals/risk/{rid}/grade", json={
-        "residual_score": "Medium",
-        "mitigation": "Interim Standard Contractual Clauses (SCCs) in place; execute full DPA within 30 days.",
-    }).json())
+    if pend.get("findings"):
+        fid = pend["findings"][0]["id"]
+        show("APPROVE FINDING", client.post(f"/api/approvals/finding/{fid}/approve").json())
+
+    if pend.get("risks"):
+        rid = pend["risks"][0]["id"]
+        show("GRADE RISK", client.post(f"/api/approvals/risk/{rid}/grade", json={
+            "residual_score": "Medium",
+            "mitigation": "Interim Standard Contractual Clauses (SCCs) in place; execute full DPA within 30 days.",
+        }).json())
 
     show("REGISTERS", client.get("/api/registers").json())
 
