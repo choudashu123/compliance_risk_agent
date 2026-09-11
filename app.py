@@ -165,7 +165,7 @@ CHUNK_OVERLAP = int(_env("CHUNK_OVERLAP", "GRC_CHUNK_OVERLAP", default="100"))
 DB_PATH = os.getenv("GRC_DB", os.path.join(_ROOT, "data", "grc.db"))
 CHROMA_DIR = os.getenv("GRC_CHROMA_DIR", os.path.join(os.path.dirname(DB_PATH), "chroma"))
 SAMPLE_DOCS = os.path.join(_ROOT, "sample_docs")
-STATIC_DIR = os.path.join(_ROOT, "static") if os.path.isdir(os.path.join(_ROOT, "static")) else os.path.join(_ROOT, "app", "static")
+STATIC_DIR = os.path.join(_ROOT, "app", "static") if os.path.isdir(os.path.join(_ROOT, "app", "static")) else os.path.join(_ROOT, "static")
 
 
 # =============================================================================
