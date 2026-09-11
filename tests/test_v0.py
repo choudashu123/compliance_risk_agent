@@ -79,6 +79,24 @@ def test_drafting_creates_proposed_and_null_residual():
     assert pend["risks"][0]["inherent_score"] == "High"
 
 
+def test_chat_follows_the_question_not_a_stock_gap():
+    """Greetings and off-topic asks must not dump the DPA finding."""
+    _upload()
+    hi = client.post("/api/chat", json={"message": "hi"}).json()
+    assert "DPA" not in hi["answer"]
+    assert not (hi.get("drafted") or {}).get("finding_id")
+
+    weather = client.post("/api/chat", json={"message": "what is the weather of patna"}).json()
+    assert "DPA" not in weather["answer"]
+    assert "patna" in weather["answer"].lower()
+    assert not (weather.get("drafted") or {}).get("finding_id")
+
+    encrypt = client.post("/api/chat", json={"message": "Do we encrypt data at rest?"}).json()
+    low = encrypt["answer"].lower()
+    assert "dpa" not in low
+    assert "encrypt" in low or "kms" in low
+
+
 def test_human_gate_requires_valid_residual():
     _upload()
     client.post("/api/chat", json={"message": QUESTION})

@@ -199,13 +199,24 @@ class Drafts(BaseModel):
 
 
 class AgentAnswer(BaseModel):
-    answer: str = Field(..., description="Answer grounded ONLY in the provided evidence chunks.")
+    answer: str = Field(
+        ...,
+        description=(
+            "Direct answer to THIS user question. If the chunks do not address the question, "
+            "say so instead of summarizing unrelated document text."
+        ),
+    )
     citations: List[Citation] = Field(
         default_factory=list,
         description="Evidence used. filename/chunk_id MUST come from the provided chunks — never invent one.",
     )
     has_gap: bool = Field(
-        ..., description="True if the evidence reveals a compliance gap, deficiency, or unmitigated risk worth tracking."
+        ...,
+        description=(
+            "True only if THIS question is about compliance/risk AND the evidence shows a gap "
+            "relevant to that question. False for greetings, chit-chat, off-topic asks, or when "
+            "the chunks do not answer the question."
+        ),
     )
     drafts: Optional[Drafts] = Field(
         None, description="A Finding + Risk to draft. Present only when has_gap is true; never set a residual score.",
@@ -532,14 +543,21 @@ def ingest_pdf(filename: str, data: bytes) -> dict:
 # 4. Agent  —  LangChain tools + LangGraph: retrieve -> analyze -> draft -> guard
 # =============================================================================
 SYSTEM_PROMPT = (
-    "You are a compliance and risk analyst. You are given a set of evidence chunks "
-    "retrieved from the organization's uploaded policy/regulatory/assessment documents. "
-    "Answer the user's question using ONLY those chunks — never invent facts or documents. "
-    "Cite the exact chunk_id(s) you relied on.\n"
-    "Decide has_gap: if the evidence shows a compliance gap, deficiency, missing control, "
-    "or unmitigated risk (e.g. a required agreement not executed, a control not in place), "
-    "set has_gap=true; otherwise false. Be consistent — if your answer text says something "
-    "is missing, unmet, or blocking, then has_gap MUST be true.\n"
+    "You are a compliance and risk analyst in a chat. Answer the user's latest question "
+    "directly — do not recycle a stock finding just because it appears in retrieved text.\n"
+    "Evidence chunks are excerpts from uploaded policy/regulatory/assessment documents. "
+    "Use a chunk only when it actually helps answer THIS question. Never invent facts or "
+    "documents. Cite the exact chunk_id(s) you relied on.\n"
+    "If the question is a greeting, small talk, or something the documents cannot cover "
+    "(weather, sports, trivia, news, etc.), reply briefly, explain you only analyze the "
+    "uploaded compliance files, set has_gap=false, leave citations empty, and omit drafts. "
+    "Do not mention unrelated gaps (DPA, GDPR, etc.) in that case.\n"
+    "If the question is on-topic but the chunks do not contain the answer, say the uploaded "
+    "documents do not cover it; has_gap=false; no drafts.\n"
+    "Decide has_gap: true only when this question is about compliance/risk AND the evidence "
+    "shows a gap, deficiency, missing control, or unmitigated risk that is relevant to the "
+    "question. If the answer text says something is missing, unmet, or blocking for this "
+    "question, has_gap MUST be true; otherwise false.\n"
     "When has_gap=true you MUST populate drafts with exactly one Finding and one Risk, "
     "the Risk's inherent_score being High/Medium/Low by severity. Never assign a residual "
     "risk score — that is reserved for a human reviewer. When has_gap=false, omit drafts."
@@ -549,8 +567,12 @@ SYSTEM_PROMPT = (
 def _build_prompt(question: str, chunks: list) -> str:
     context = "\n\n".join(
         f"[chunk_id={c['id']} file={c['filename']}]\n{c['text']}" for c in chunks
+    ) or "(none — the retrieved text is not about this question)"
+    return (
+        f"Evidence chunks:\n{context}\n\n"
+        f"Question: {question}\n\n"
+        "Answer that question. Ignore evidence that is off-topic for it."
     )
-    return f"Evidence chunks:\n{context}\n\nQuestion: {question}"
 
 
 @lru_cache(maxsize=1)
@@ -568,6 +590,92 @@ def _llm_analyze(question: str, chunks: list) -> AgentAnswer:
     )
 
 
+_SMALLTALK = re.compile(
+    r"^\s*(hi+|hello|hey+|yo|howdy|thanks|thank you|thx|ok|okay|cool|bye|goodbye|"
+    r"good\s*(morning|afternoon|evening)|how are you|what'?s up)"
+    r"[\s!.?]*\s*$",
+    re.I,
+)
+_STOPWORDS = {
+    "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "with", "from",
+    "by", "is", "are", "was", "were", "be", "been", "being", "do", "does", "did",
+    "can", "could", "should", "would", "we", "our", "you", "your", "us", "this",
+    "that", "these", "those", "what", "which", "who", "whom", "how", "when",
+    "where", "why", "based", "uploaded", "docs", "documents", "please", "tell",
+    "me", "about", "just", "any", "also", "into", "over", "under", "have", "has",
+    "had", "not", "will", "may", "might", "shall", "need", "know", "ask", "there",
+    "here", "pdf", "file", "files",
+}
+_SHORT_KEEP = {"eu", "uk", "us", "ai", "dpa", "scc"}
+# Too common in every GRC PDF to count as "this chunk is about the question".
+_GENERIC_TOKENS = {
+    "data", "customer", "information", "company", "process", "processing",
+    "security", "policy", "document", "assessment", "control", "requirement",
+    "organization", "personal",
+}
+
+
+def _smalltalk_reply(question: str) -> Optional[str]:
+    q = (question or "").strip()
+    if not q or not _SMALLTALK.match(q):
+        return None
+    if re.search(r"thank", q, re.I):
+        return (
+            "You're welcome. Ask whenever you want to check a control, policy, "
+            "or onboarding question against the uploaded documents."
+        )
+    if re.search(r"bye", q, re.I):
+        return "Goodbye. Ask another compliance question anytime, or use Reset demo to start fresh."
+    return (
+        "Hello — I'm the compliance & risk assistant. Ask about your uploaded policies, "
+        "assessments, or regulations (for example GDPR onboarding or encryption), and I'll "
+        "answer from those documents."
+    )
+
+
+def _content_tokens(question: str) -> set:
+    tokens = set()
+    for w in re.findall(r"[a-z0-9]+", (question or "").lower()):
+        if w in _SHORT_KEEP or (len(w) >= 3 and w not in _STOPWORDS):
+            tokens.add(w)
+    return tokens
+
+
+def _chunks_matching_question(question: str, chunks: list) -> list:
+    """Keep retrieved chunks that actually share meaning with the question.
+
+    Vector search always returns *something* from a small corpus, so greetings and
+    off-topic asks otherwise get the same DPA paragraph every time."""
+    tokens = _content_tokens(question)
+    if not tokens or not chunks:
+        return []
+    specific = tokens - _GENERIC_TOKENS
+    scored = []
+    for c in chunks:
+        text = c["text"].lower()
+        hits = {t for t in tokens if t in text}
+        score = len(hits)
+        if not score:
+            continue
+        if specific and not (hits & specific) and score < 2:
+            continue
+        scored.append((score, c))
+    scored.sort(key=lambda x: -x[0])
+    if not scored:
+        return []
+    best = scored[0][0]
+    return [c for s, c in scored if s >= max(1, best - 1)]
+
+
+def _unanswered_reply(question: str) -> str:
+    return (
+        "I couldn't find anything in the uploaded compliance documents that answers that. "
+        "I only analyze those files — not weather, news, or general trivia. "
+        f"Your question was: “{question.strip()}”. "
+        "Try asking about a control, policy, regulation, or assessment in the ingested PDFs."
+    )
+
+
 # Ordered most-specific-first so a strong deficiency phrase always wins over a
 # weak generic word like "gap" that might just appear in a section heading.
 _GAP_SIGNALS = (
@@ -577,50 +685,83 @@ _GAP_SIGNALS = (
 )
 
 
-def _find_gap(chunks):
-    """Return (chunk, sentence) for the first, most-specific gap signal found — or
-    (None, None) if none match."""
-    for signal in _GAP_SIGNALS:
-        for c in chunks:
-            for sentence in re.split(r"(?<=[.!?])\s+", c["text"]):
-                if signal in sentence.lower():
-                    return c, sentence.strip()
-    return None, None
+def _rank_sentences(question: str, chunks: list):
+    """Score sentences by overlap with the question.
+
+    Sentences in a relevant chunk inherit half the chunk score so a DPA clause
+    in an onboarding assessment still ranks when the user asked about GDPR, even
+    if that one sentence does not repeat those words."""
+    tokens = _content_tokens(question)
+    specific = tokens - _GENERIC_TOKENS
+
+    def overlap(text: str) -> int:
+        sl = text.lower()
+        hits = {t for t in tokens if t in sl}
+        if not hits:
+            return 0
+        return len(hits) + 2 * len(hits & specific)
+
+    ranked = []
+    for c in chunks:
+        c_score = overlap(c["text"])
+        if not c_score:
+            continue
+        inherited = (c_score + 1) // 2
+        for sentence in re.split(r"(?<=[.!?])\s+", c["text"]):
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            score = max(overlap(sentence), inherited)
+            ranked.append((score, c, sentence))
+    ranked.sort(key=lambda x: -x[0])
+    return ranked
 
 
 def _mock_analyze(question: str, chunks: list) -> AgentAnswer:
     """Deterministic, offline stand-in for a real LLM call — used when no API key
-    is configured so the demo and tests never need a key or network. Reasons
-    generically over whatever chunks vector search returned."""
-    top = chunks[:4]
-    citations = [Citation(filename=c["filename"], chunk_id=c["id"]) for c in top[:3]]
-
-    gap_chunk, sentence = _find_gap(top)
-    if gap_chunk:
-        answer = (
-            f"The evidence points to an open compliance gap: {sentence} "
-            f"(source: {gap_chunk['filename']}#{gap_chunk['id']})."
-        )
-        drafts = Drafts(
-            finding=FindingDraft(
-                title=f"Compliance gap identified in {gap_chunk['filename']}",
-                description=sentence,
-            ),
-            risk=RiskDraft(
-                title=f"Risk arising from gap in {gap_chunk['filename']}",
-                description=f"An unremediated gap may expose the organization to regulatory or "
-                            f"operational risk: {sentence}",
-                inherent_score="High",
-            ),
-        )
-        return AgentAnswer(answer=answer, citations=citations, has_gap=True, drafts=drafts)
-
-    if not top:
-        return AgentAnswer(answer="No relevant documents were found for this question.",
+    is configured so the demo and tests never need a key or network. Reasons over
+    sentences that match the question, not the first gap anywhere in retrieval."""
+    ranked = _rank_sentences(question, chunks)
+    if not ranked:
+        return AgentAnswer(answer=_unanswered_reply(question),
                             citations=[], has_gap=False, drafts=None)
 
-    snippet = " ".join(top[0]["text"].split()[:60])
-    answer = f"Based on the uploaded documents: {snippet}… (source: {top[0]['filename']})"
+    citations, seen = [], set()
+    for _, c, _ in ranked:
+        key = (c["filename"], c["id"])
+        if key in seen:
+            continue
+        seen.add(key)
+        citations.append(Citation(filename=c["filename"], chunk_id=c["id"]))
+        if len(citations) >= 3:
+            break
+
+    best = ranked[0][0]
+    top_sents = [(c, s) for sc, c, s in ranked if sc >= max(1, best - 2)]
+    for signal in _GAP_SIGNALS:
+        for gap_chunk, sentence in top_sents:
+            if signal not in sentence.lower():
+                continue
+            answer = (
+                f"The evidence points to an open compliance gap: {sentence} "
+                f"(source: {gap_chunk['filename']}#{gap_chunk['id']})."
+            )
+            drafts = Drafts(
+                finding=FindingDraft(
+                    title=f"Compliance gap identified in {gap_chunk['filename']}",
+                    description=sentence,
+                ),
+                risk=RiskDraft(
+                    title=f"Risk arising from gap in {gap_chunk['filename']}",
+                    description=f"An unremediated gap may expose the organization to regulatory or "
+                                f"operational risk: {sentence}",
+                    inherent_score="High",
+                ),
+            )
+            return AgentAnswer(answer=answer, citations=citations, has_gap=True, drafts=drafts)
+
+    snippet, src = ranked[0][2], ranked[0][1]
+    answer = f"Based on the uploaded documents: {snippet} (source: {src['filename']})"
     return AgentAnswer(answer=answer, citations=citations, has_gap=False, drafts=None)
 
 
@@ -653,16 +794,23 @@ def analyze(question: str, chunks: list) -> dict:
     missing provider package) is caught here and returned as a normal answer with
     a warning, so /api/chat stays HTTP 200 and the UI shows *why* it failed
     instead of a blank "undefined" bubble."""
-    if not chunks:
+    if not list_documents():
         return {
             "answer": "No documents have been ingested yet. Upload the sample PDFs first.",
             "citations": [],
             "drafts": None,
         }
+    scoped = _chunks_matching_question(question, chunks)
+    if not scoped:
+        return {
+            "answer": _unanswered_reply(question),
+            "citations": [],
+            "drafts": None,
+        }
     if LLM_PROVIDER == "mock":
-        return _to_state(_mock_analyze(question, chunks))
+        return _to_state(_mock_analyze(question, scoped))
     try:
-        return _to_state(_llm_analyze(question, chunks))
+        return _to_state(_llm_analyze(question, scoped))
     except Exception as e:  # noqa: BLE001 — surface any provider failure to the user
         log.exception("LLM call failed (mode=%s model=%s)", LLM_MODE, LLM_MODEL)
         return {
@@ -789,6 +937,9 @@ _GRAPH = _build_graph()
 
 
 def run_agent(question: str) -> dict:
+    talk = _smalltalk_reply(question)
+    if talk:
+        return {"answer": talk, "citations": [], "warnings": [], "drafted": {}}
     out = _GRAPH.invoke({"question": question})
     warnings = list(out.get("warnings", []))
     if out.get("error"):
