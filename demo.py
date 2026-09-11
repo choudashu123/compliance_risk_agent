@@ -100,7 +100,7 @@ def make_sample_pdfs():
 def main():
     from fastapi.testclient import TestClient
 
-    from app.main import SAMPLE_DOCS, app
+    from app import SAMPLE_DOCS, app
 
     def show(title, obj):
         print(f"\n=== {title} ===")

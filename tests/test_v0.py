@@ -17,7 +17,7 @@ os.environ["GRC_DB"] = os.path.join(tempfile.mkdtemp(), "test_grc.db")
 os.environ["GRC_LLM_MODE"] = "mock"
 
 import demo  # noqa: E402
-from app.main import (  # noqa: E402
+from app import (  # noqa: E402
     SAMPLE_DOCS,
     all_chunks,
     app,

@@ -49,7 +49,7 @@ from typing_extensions import TypedDict
 # =============================================================================
 log = logging.getLogger("grc")
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 # Load .env by ABSOLUTE path so it is found no matter what directory the server
 # (or a test, IDE run config, systemd unit, …) is started from. `load_dotenv()`
@@ -165,7 +165,7 @@ CHUNK_OVERLAP = int(_env("CHUNK_OVERLAP", "GRC_CHUNK_OVERLAP", default="100"))
 DB_PATH = os.getenv("GRC_DB", os.path.join(_ROOT, "data", "grc.db"))
 CHROMA_DIR = os.getenv("GRC_CHROMA_DIR", os.path.join(os.path.dirname(DB_PATH), "chroma"))
 SAMPLE_DOCS = os.path.join(_ROOT, "sample_docs")
-STATIC_DIR = os.path.join(_ROOT, "app", "static")
+STATIC_DIR = os.path.join(_ROOT, "static") if os.path.isdir(os.path.join(_ROOT, "static")) else os.path.join(_ROOT, "app", "static")
 
 
 # =============================================================================
@@ -427,11 +427,19 @@ class _FastEmbedFunction(EmbeddingFunction):
     def __call__(self, input):
         global _vs_embedder
         if _vs_embedder is None:
-            _vs_embedder = TextEmbedding(self.model_name)
+            try:
+                _vs_embedder = TextEmbedding(self.model_name)
+            except Exception as e:
+                log.error("Failed to initialize FastEmbed model %s: %s", self.model_name, e)
+                raise RuntimeError(
+                    f"Failed to load embedding model '{self.model_name}'. "
+                    "Ensure internet access to Hugging Face or pre-download the model."
+                ) from e
         return [vec.tolist() for vec in _vs_embedder.embed(list(input))]
 
-    def name(self):
-        return f"fastembed:{self.model_name}"
+    @staticmethod
+    def name():
+        return "fastembed"
 
     def get_config(self):
         return {"model_name": self.model_name}
@@ -843,11 +851,24 @@ class GradeIn(BaseModel):
 
 @app.post("/api/upload")
 async def upload(files: list[UploadFile]):
+    if not files:
+        raise HTTPException(400, "No files selected. Please select at least one PDF file.")
     results = []
     for f in files:
-        if not f.filename.lower().endswith(".pdf"):
-            raise HTTPException(400, f"{f.filename} is not a PDF")
-        results.append(ingest_pdf(f.filename, await f.read()))
+        if not f.filename or not f.filename.lower().endswith(".pdf"):
+            raise HTTPException(400, f"'{f.filename or 'Unnamed file'}' is not a PDF")
+        try:
+            results.append(ingest_pdf(f.filename, await f.read()))
+        except Exception as e:
+            log.exception("Ingestion failed for %s", f.filename)
+            # Roll back any partial database insertions for this document
+            try:
+                with _conn() as c:
+                    c.execute("DELETE FROM doc_chunks WHERE filename=?", (f.filename,))
+                    c.execute("DELETE FROM documents WHERE filename=?", (f.filename,))
+            except Exception:
+                pass
+            raise HTTPException(500, f"Ingestion failed for '{f.filename}': {e}")
     return {"ingested": results, "documents": list_documents()}
 
 
@@ -908,3 +929,13 @@ def index():
 
 
 app.mount("/", _NoCacheStatic(directory=STATIC_DIR), name="static")
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.environ.get("PORT", "8000"))
+    reload = os.environ.get("RELOAD", "true").lower() in ("1", "true", "yes")
+    print(f"[grc] Starting server at http://localhost:{port} (reload={reload})")
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=reload)
+

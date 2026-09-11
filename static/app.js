@@ -33,9 +33,14 @@ document.querySelectorAll("nav button").forEach((b) => {
 
 // --- upload ----------------------------------------------------------
 $("#doUpload").onclick = async () => {
+  const fileInput = $("#files");
+  if (!fileInput.files || fileInput.files.length === 0) {
+    $("#uploadOut").textContent = "⚠ Please choose at least one PDF file before clicking Ingest.";
+    return;
+  }
   const fd = new FormData();
-  for (const f of $("#files").files) fd.append("files", f);
-  $("#uploadOut").textContent = "Uploading…";
+  for (const f of fileInput.files) fd.append("files", f);
+  $("#uploadOut").textContent = "Uploading & Ingesting…";
   const res = await api("/api/upload", { method: "POST", body: fd });
   $("#uploadOut").textContent = res.error
     ? "⚠ " + res.error

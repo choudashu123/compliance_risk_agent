@@ -116,9 +116,9 @@ if not exist "sample_docs\1_GDPR_Art28_DPA_Requirements.pdf" (
 )
 
 rem --- 6. Start the server ---------------------------------------------------
-echo [run] starting: uvicorn app.main:app --host 0.0.0.0 --port %PORT% %UVICORN_ARGS%
+echo [run] starting: uvicorn app:app --host 0.0.0.0 --port %PORT% %UVICORN_ARGS%
 echo [run] open http://localhost:%PORT%   *   health: http://localhost:%PORT%/api/health
-"%PY%" -m uvicorn app.main:app --host 0.0.0.0 --port %PORT% %UVICORN_ARGS%
+"%PY%" -m uvicorn app:app --host 0.0.0.0 --port %PORT% %UVICORN_ARGS%
 
 if errorlevel 1 (
     echo [run] Server exited with an error.

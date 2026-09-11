@@ -85,7 +85,7 @@ if (-not (Test-Path "sample_docs\1_GDPR_Art28_DPA_Requirements.pdf")) {
 }
 
 # --- 5. Start uvicorn server ------------------------------------------------
-$argsList = @("app.main:app", "--host", "0.0.0.0", "--port", "$Port")
+$argsList = @("app:app", "--host", "0.0.0.0", "--port", "$Port")
 if (-not $NoReload) {
     $argsList += "--reload"
 }

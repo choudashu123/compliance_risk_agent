@@ -22,7 +22,7 @@ built as a generalized **LLM-based RAG** pipeline (not keyword rules):
 └───────────────────────────┬────────────────────────────────┘
                             │  REST / JSON
 ┌───────────────────────────▼────────────────────────────────┐
-│                    FastAPI  (app/main.py)                   │
+│                    FastAPI  (app.py)                        │
 │  /api/upload   /api/chat   /api/approvals   /api/registers  │
 └─────────────┬──────────────┬────────────────────┬───────────┘
               │              │                    │
@@ -38,7 +38,7 @@ built as a generalized **LLM-based RAG** pipeline (not keyword rules):
                                      → structured Pydantic AgentAnswer
 ```
 
-> The entire backend lives in one file — **`app/main.py`** — in six labelled
+> The entire backend lives in one file — **`app.py`** — in six labelled
 > sections: Config · Schemas · Store · Agent · Approvals · API.
 
 ---
@@ -73,7 +73,7 @@ The startup scripts automatically:
 3. Generate sample PDFs in `sample_docs/`
 4. Free the port and start the server on **http://localhost:8000**
 
-*(Manual setup if preferred: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && uvicorn app.main:app --reload`)*
+*(Manual setup if preferred: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python3 app.py`)*
 
 ---
 
@@ -82,6 +82,8 @@ The startup scripts automatically:
 ### Option A — Web UI (recommended)
 
 ```bash
+python3 app.py
+# or
 ./run.sh
 ```
 
@@ -91,13 +93,15 @@ again is a clean **restart**.
 ```bash
 ./run.sh 8080        # different port
 ./run.sh --no-reload # disable autoreload (extra flags pass through to uvicorn)
+# or via python directly:
+PORT=8080 python3 app.py
 ```
 
 Equivalent manual form:
 
 ```bash
 python -c "import demo; demo.make_sample_pdfs()"   # once
-python -m uvicorn app.main:app --port 8000 --reload
+python -m uvicorn app:app --port 8000 --reload
 ```
 
 Then, in the browser:

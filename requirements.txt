@@ -13,7 +13,7 @@ reportlab
 httpx
 pytest
 
-# LLM providers (lazy-imported by app/main.py via init_chat_model;
+# LLM providers (lazy-imported by app.py via init_chat_model;
 # only the one matching the API key in .env is actually used at runtime).
 langchain-google-genai
 langchain-openai

@@ -64,6 +64,6 @@ if ! ls sample_docs/*.pdf >/dev/null 2>&1; then
   "$PY" -c "import demo; demo.make_sample_pdfs()"
 fi
 
-echo "[run] starting: uvicorn app.main:app --host 0.0.0.0 --port ${PORT} ${UVICORN_ARGS[*]-}"
+echo "[run] starting: uvicorn app:app --host 0.0.0.0 --port ${PORT} ${UVICORN_ARGS[*]-}"
 echo "[run] open http://localhost:${PORT}   ·   health: http://localhost:${PORT}/api/health"
-exec "$PY" -m uvicorn app.main:app --host 0.0.0.0 --port "${PORT}" ${UVICORN_ARGS[@]+"${UVICORN_ARGS[@]}"}
+exec "$PY" -m uvicorn app:app --host 0.0.0.0 --port "${PORT}" ${UVICORN_ARGS[@]+"${UVICORN_ARGS[@]}"}
