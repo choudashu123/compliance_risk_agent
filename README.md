@@ -1,3 +1,8 @@
+*****References*****
+Video: https://youtu.be/rdy83hbUnU0
+Github repo: https://github.com/choudashu123/compliance_risk_agent.git
+
+
 # 🛡️ Compliance & Risk Agent (GRC)
 
 An intelligent, lightweight **Governance, Risk, and Compliance (GRC) Agent** powered by a semantic **RAG pipeline** and **LangGraph**. It ingests compliance policies, detects compliance gaps via semantic retrieval, generates structured findings and inherent risks, and enforces a **human-in-the-loop approval gate** before making records official.
