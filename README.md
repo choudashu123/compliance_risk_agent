@@ -1,4 +1,5 @@
 *****References*****
+Doc: https://docs.google.com/document/d/1zWiG5zQnSBpv6LTRWZQ97JHhd9jl5gssqTWUUeSsAgk/edit?usp=sharing
 Video: https://youtu.be/rdy83hbUnU0
 Github repo: https://github.com/choudashu123/compliance_risk_agent.git
 
