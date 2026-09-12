@@ -1,298 +1,306 @@
-# Compliance & Risk Agent — Demo Prototype
+# 🛡️ Compliance & Risk Agent (GRC)
 
-A lightweight, fully functional demo of a **Compliance & Risk (GRC) agent**
-built as a generalized **LLM-based RAG** pipeline (not keyword rules):
+An intelligent, lightweight **Governance, Risk, and Compliance (GRC) Agent** powered by a semantic **RAG pipeline** and **LangGraph**. It ingests compliance policies, detects compliance gaps via semantic retrieval, generates structured findings and inherent risks, and enforces a **human-in-the-loop approval gate** before making records official.
 
-1. Upload compliance PDFs — extracted, chunked, and embedded into a vector store.
-2. Ask a compliance question in chat — a **LangGraph** agent retrieves the
-   most semantically relevant chunks, an **LLM produces a structured (Pydantic)
-   analysis** citing exact chunk ids, and a guardrail blocks any citation it
-   can't trace back to a real uploaded chunk.
-3. When the LLM's analysis flags a gap, it **dynamically drafts a Finding and
-   a Risk** in `proposed` status (inherent risk scored High/Medium/Low,
-   residual risk left blank).
-4. A human reviews the **Approvals** tab: approves the finding, records a
-   mitigation, and grades the **residual risk** — only then does it become
-   `official`.
-5. The **Registers** tab is the live system of record.
-
-```
-┌────────────────────────────────────────────────────────────┐
-│         Static SPA  (Upload · Chat · Approvals · Registers) │
-└───────────────────────────┬────────────────────────────────┘
-                            │  REST / JSON
-┌───────────────────────────▼────────────────────────────────┐
-│                    FastAPI  (app.py)                        │
-│  /api/upload   /api/chat   /api/approvals   /api/registers  │
-└─────────────┬──────────────┬────────────────────┬───────────┘
-              │              │                    │
-   ┌──────────▼──────┐ ┌─────▼───────────┐ ┌──────▼──────────────┐
-   │ SQLite grc.db    │ │ ChromaDB +      │ │ LangGraph agent      │
-   │ documents        │ │ fastembed       │ │ retrieve → analyze → │
-   │ findings / risks │ │ (semantic index)│ │ draft → guard        │
-   └──────────────────┘ └─────────────────┘ └──────────┬───────────┘
-                                                         │
-                                     LangChain init_chat_model
-                                     (Gemini / OpenAI / Anthropic /
-                                     Ollama / offline mock)
-                                     → structured Pydantic AgentAnswer
-```
-
-> The entire backend lives in one file — **`app.py`** — in six labelled
-> sections: Config · Schemas · Store · Agent · Approvals · API.
+Works **100% offline out-of-the-box** using deterministic mock mode ($0, no API key required), or connects seamlessly to **Gemini, OpenAI, Anthropic, or Ollama**.
 
 ---
 
-## 1. Prerequisites
+## ⚡ First-Time Setup & Localhost Launch
 
-- **Python 3.9+** (developed and tested on 3.9)
-- No database server, no Node.js, no build step.
-- No API key required by default (offline `mock` LLM mode). Drop a
-  `GEMINI_API_KEY` (or OpenAI/Anthropic) into `.env` for real LLM reasoning.
-- First run downloads the small (~130 MB) `BAAI/bge-small-en-v1.5` embedding
-  model from Hugging Face and caches it locally — needs internet once.
+Follow the quick steps below for your operating system to set up your virtual environment and launch the web app on `http://localhost:8000`.
 
----
+### 🍎 macOS & Linux
 
-## 2. Quick Start (One Command)
+#### Option A: One-Command Automated Setup (Recommended)
+The included shell script handles `.env` creation, virtual environment setup, package installation, sample PDF generation, and server startup automatically:
 
-### macOS / Linux
 ```bash
+chmod +x run.sh
 ./run.sh
 ```
 
-### Windows
+#### Option B: Step-by-Step Manual Setup
+If you prefer running commands manually in your terminal:
+
+```bash
+# 1. Create a Python 3.9+ virtual environment
+python3 -m venv .venv
+
+# 2. Activate the virtual environment
+source .venv/bin/activate
+
+# 3. Upgrade pip & install dependencies
+pip install -r requirements.txt
+
+# 4. (Optional) Set up environment variables
+# Note: Runs in offline 'mock' mode by default. Add API keys if you want real LLM reasoning.
+cp .env.example .env
+
+# 5. Generate sample compliance PDFs
+python -c "import demo; demo.make_sample_pdfs()"
+
+# 6. Launch the server
+python app.py
+# or: uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+---
+
+### 🪟 Windows
+
+#### Option A: One-Click / Script Setup (Recommended)
+Open Command Prompt or PowerShell, navigate to the folder, and run:
+
+- **Command Prompt (CMD):**
+  ```cmd
+  run.bat
+  ```
+- **PowerShell:**
+  ```powershell
+  .\run.ps1
+  ```
+*(You can also simply double-click `run.bat` in Windows File Explorer).*
+
+#### Option B: Step-by-Step Manual Setup
+
+**Using Windows Command Prompt (CMD):**
 ```cmd
-run.bat
+:: 1. Create virtual environment
+python -m venv .venv
+
+:: 2. Activate virtual environment
+.venv\Scripts\activate
+
+:: 3. Install dependencies
+pip install -r requirements.txt
+
+:: 4. (Optional) Copy environment template
+copy .env.example .env
+
+:: 5. Generate sample compliance PDFs
+python -c "import demo; demo.make_sample_pdfs()"
+
+:: 6. Launch the server
+python app.py
 ```
-*(or in PowerShell: `.\run.ps1`)*
 
-The startup scripts automatically:
-1. Create `.env` from `.env.example` (if not present)
-2. Set up the `.venv` virtual environment and install `requirements.txt`
-3. Generate sample PDFs in `sample_docs/`
-4. Free the port and start the server on **http://localhost:8000**
+**Using Windows PowerShell:**
+```powershell
+# 1. Create virtual environment
+python -m venv .venv
 
-*(Manual setup if preferred: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python3 app.py`)*
+# 2. Activate virtual environment
+# (If script execution is disabled, run: Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass)
+.\.venv\Scripts\Activate.ps1
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. (Optional) Copy environment template
+Copy-Item .env.example .env
+
+# 5. Generate sample compliance PDFs
+python -c "import demo; demo.make_sample_pdfs()"
+
+# 6. Launch the server
+python app.py
+```
 
 ---
 
-## 3. How to run the app
+### 🌐 Accessing on Localhost
 
-### Option A — Web UI (recommended)
+Once the server starts, open your browser and access:
 
-```bash
-python3 app.py
-# or
-./run.sh
+| Destination | URL | Description |
+|---|---|---|
+| **Web UI** | [http://localhost:8000](http://localhost:8000) | Single Page Application (Upload, Chat, Approvals, Registers) |
+| **API Docs (Swagger)** | [http://localhost:8000/docs](http://localhost:8000/docs) | Interactive REST API documentation |
+| **API Health Check** | [http://localhost:8000/api/health](http://localhost:8000/api/health) | Current active LLM provider, model, and status |
+
+> **Custom Port:**
+> - macOS/Linux: `./run.sh 8080` or `PORT=8080 python app.py`
+> - Windows: `run.bat 8080` or `set PORT=8080 && python app.py`
+
+---
+
+## 🧭 How to Use the Web Application
+
+The single-page web UI provides an intuitive 4-step workflow:
+
+```
+[1. Upload Docs] ➔ [2. Chat & Audit] ➔ [3. Review & Grade] ➔ [4. Live Registers]
 ```
 
-Then open **http://localhost:8000**. `run.sh` frees the port first, so running it
-again is a clean **restart**.
+1. **📁 Upload Tab:**
+   - Click **Browse**, select the 3 generated sample PDFs in `sample_docs/` (or upload your own compliance PDFs), and click **Ingest Documents**.
+2. **💬 Chat Tab:**
+   - Ask compliance assessment questions, e.g.:
+     > *"Can we onboard an EU customer under GDPR based on our uploaded docs?"*
+   - The agent retrieves the relevant chunks, produces an evidence-backed answer with strict citation verification, and automatically drafts a **Finding** and **Risk** in `proposed` status.
+3. **📋 Approvals Tab (Human-in-the-loop):**
+   - Review drafted findings and risks.
+   - Enter your mitigation strategy (e.g. *"Execute Standard Contractual Clauses (SCCs)"*), choose a **Residual Risk** grade (`Low`, `Medium`, or `High`), and click **Grade & Approve**.
+4. **🗂️ Registers Tab:**
+   - View official system-of-record registers: Ingested Documents, Approved Findings, and Graded Risks.
+5. **🔄 Reset Demo:**
+   - Use the **Reset Demo** button (top-right) at any time to clear SQLite records and vector index for a fresh start.
 
-```bash
-./run.sh 8080        # different port
-./run.sh --no-reload # disable autoreload (extra flags pass through to uvicorn)
-# or via python directly:
-PORT=8080 python3 app.py
-```
+---
 
-Equivalent manual form:
+## 💻 Terminal / CLI Headless Demo
 
-```bash
-python -c "import demo; demo.make_sample_pdfs()"   # once
-python -m uvicorn app:app --port 8000 --reload
-```
-
-Then, in the browser:
-
-| Tab | Action |
-|-----|--------|
-| **📁 Upload**     | Select the 3 files from `sample_docs/`, click **Ingest**. |
-| **💬 Chat**       | Ask: *"Can we onboard an EU customer under GDPR based on our uploaded docs?"* |
-| **📋 Approvals**  | Approve the drafted finding; type a mitigation (e.g. *interim SCCs*); pick **Residual: Medium**; click **Grade & approve**. |
-| **🗂️ Registers**  | See documents, findings and graded risks update live. |
-
-Use **Reset demo** (top-right) to wipe SQLite + the vector store and start over.
-
-### Option B — Automated end-to-end demo (no browser)
-
-Runs the whole flow in the terminal and prints each step's JSON:
+You can run the entire lifecycle in the terminal without opening a browser:
 
 ```bash
 python demo.py
 ```
-
-It generates the sample PDFs, ingests them, asks the GDPR question, lets the
-LLM draft a finding + risk, approves the finding, grades the residual risk,
-and dumps the final registers.
+This script generates the sample documents, uploads them, sends the test query, simulates agent drafting, executes the human approval step, and prints the formatted JSON outputs at each step.
 
 ---
 
-## 4. Running the tests
+## 🧪 Running the Tests
+
+Run the automated acceptance test suite using pytest:
 
 ```bash
+# macOS/Linux:
 pytest -q
+
+# Windows:
+pytest -q
+
+# Or explicitly via the virtual environment:
+.venv/bin/pytest -q          # macOS/Linux
+.venv\Scripts\pytest.exe -q  # Windows
 ```
 
-Five acceptance tests covering:
-
-1. **PDF ingestion** — `pypdf` extracts text, chunks are stored in SQLite and embedded into the vector store.
-2. **Compliance discovery** — semantic search surfaces the DPA gap and the answer cites only real uploaded files.
-3. **Citation guard** — fabricated document names / chunk ids are rejected.
-4. **Drafting** — finding is `proposed`, risk has an inherent score and `residual_score = None`.
-5. **Human gate** — a risk becomes `official` only when a human supplies a valid
-   residual score (`Low` / `Medium` / `High`); anything else returns HTTP 422.
-
-Tests run against an isolated temp SQLite DB + temp Chroma dir (`GRC_DB` env
-var) and default to the offline `mock` LLM mode, so they need no API key and
-never touch `data/`.
+Tests run against an isolated temporary SQLite database and local Chroma directory in offline `mock` mode (no API keys consumed).
 
 ---
 
-## 5. Sample documents
+## 🏗️ Architecture & Pipeline
 
-`demo.py` (`make_sample_pdfs()`) writes three PDFs into `sample_docs/`:
+The backend is contained in **`app.py`**, structured into six modular components:
 
-| File | Purpose |
-|------|---------|
-| `1_GDPR_Art28_DPA_Requirements.pdf`      | The obligation — GDPR Art. 28 requires a signed DPA; fines up to €20M / 4% turnover. |
-| `2_Acme_Security_and_Backup_Policy.pdf`  | A satisfied control — encryption at rest via AWS KMS (GDPR Art. 32). |
-| `3_EU_Customer_Onboarding_Assessment.pdf`| The gap — Acme has **not** executed a DPA with the prospective German client. |
-
-You can also upload your own PDFs — retrieval is fully semantic (embeddings,
-not keywords) and the LLM's gap/finding/risk analysis is domain-agnostic, so
-it isn't tied to GDPR or to these specific filenames.
-
----
-
-## 6. Architecture: RAG + structured LLM output
-
-Everything below is a section of **`app/main.py`** (top to bottom):
-
-- **Config** — reads `.env` / environment only (no config file). Auto-detects the
-  LLM provider from whichever API key is present and maps it to a LangChain
-  provider id.
-- **Schemas** — the `AgentAnswer` Pydantic model every LLM call must return:
-  `answer`, `citations` (filename + chunk_id), `has_gap`, and an optional
-  `drafts` (one Finding + one Risk, inherent score only).
-- **Store** — a persistent ChromaDB collection over a `fastembed`
-  (`BAAI/bge-small-en-v1.5`) embedding function, plus the SQLite system-of-record
-  and the `pypdf` extract/chunk step. SQLite owns the chunk text; Chroma only
-  stores embeddings keyed by the SQLite chunk id.
-- **Agent** — `search_documents` / `draft_finding` / `draft_risk` LangChain
-  tools; `analyze()` runs one shared path for every real provider —
-  `init_chat_model(model, provider).with_structured_output(AgentAnswer)` — with
-  an offline, deterministic `mock` (default when no key is set, and forced by the
-  test suite) that swaps the network call for generic gap-signal heuristics.
-  `guard_citations()` drops any citation not tied to a real ingested chunk. A
-  LangGraph state machine wires it together: `retrieve → analyze → draft → guard`.
-- **Approvals** — the human gate: approve a finding, grade residual risk.
-- **API** — FastAPI routes + static SPA.
-
----
-
-## 7. Configuration
-
-All config is environment variables — copy `.env.example` to `.env`. There is no
-config file. Set **one** of `GEMINI_API_KEY`, `OPENAI_API_KEY`, or
-`ANTHROPIC_API_KEY` and it is auto-selected; `ollama` needs no key
-(`GRC_LLM_MODE=ollama`); with no key set it falls back to **`mock`** —
-deterministic, $0, 100% reproducible. `GRC_LLM_MODE` forces a provider
-regardless of keys present.
-
-Every mode shares the same retrieval, drafting, human-gate, and citation guard
-code paths — only how `AgentAnswer` gets produced changes.
-
-| Env var | Purpose (default) |
-|---------|-------------------|
-| `GRC_LLM_MODE`         | `auto` (detect from key) \| `gemini` \| `openai` \| `anthropic` \| `ollama` \| `mock` |
-| `GEMINI_MODEL` / `GRC_GEMINI_MODEL`       | `gemini-2.5-flash` |
-| `OPENAI_MODEL` / `GRC_OPENAI_MODEL`       | `gpt-4o-mini` |
-| `ANTHROPIC_MODEL` / `GRC_ANTHROPIC_MODEL` | `claude-haiku-4-5-20251001` |
-| `OLLAMA_MODEL` / `GRC_OLLAMA_MODEL`       | `qwen3:8b` |
-| `OLLAMA_URL` / `GRC_OLLAMA_URL`           | `http://localhost:11434` |
-| `EMBEDDING_MODEL` / `GRC_EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` (fastembed) |
-| `CHUNK_SIZE` / `GRC_CHUNK_SIZE`           | `700` |
-| `CHUNK_OVERLAP` / `GRC_CHUNK_OVERLAP`     | `100` |
-| `GRC_DB`               | SQLite file path (default `data/grc.db`) |
-| `GRC_CHROMA_DIR`       | Chroma persistence dir (default alongside `GRC_DB`) |
-
-Examples:
-
-```bash
-# usual case: put GEMINI_API_KEY=... in .env, then just:
-python -m uvicorn app.main:app --port 8000
-# or override per-run:
-GRC_LLM_MODE=openai OPENAI_API_KEY=sk-... python -m uvicorn app.main:app --port 8000
-GRC_LLM_MODE=anthropic ANTHROPIC_API_KEY=sk-ant-... python -m uvicorn app.main:app --port 8000
-GRC_LLM_MODE=ollama python -m uvicorn app.main:app --port 8000
+```
+┌────────────────────────────────────────────────────────────┐
+│      Static SPA (Upload · Chat · Approvals · Registers)    │
+└───────────────────────────┬────────────────────────────────┘
+                            │  REST / JSON
+┌───────────────────────────▼────────────────────────────────┐
+│                    FastAPI Backend (app.py)                │
+│  /api/upload   /api/chat   /api/approvals   /api/registers  │
+└─────────────┬──────────────┬────────────────────┬───────────┘
+              │              │                    │
+   ┌──────────▼──────┐ ┌─────▼───────────┐ ┌──────▼──────────────┐
+   │  SQLite grc.db   │ │ ChromaDB +      │ │ LangGraph Agent     │
+   │  - Documents     │ │ FastEmbed       │ │ retrieve -> analyze │
+   │  - Findings      │ │ (bge-small-en)  │ │ -> draft -> guard   │
+   │  - Risks         │ │                 │ │                     │
+   └──────────────────┘ └─────────────────┘ └──────────┬───────────┘
+                                                       │
+                                   LangChain init_chat_model
+                                   (Gemini / OpenAI / Anthropic / Ollama / Mock)
+                                   ➔ Structured Pydantic AgentAnswer
 ```
 
----
-
-## 8. API reference
-
-| Method & path | Body | Returns |
-|---------------|------|---------|
-| `GET  /api/health` | – | resolved LLM `{mode, provider, model, api_keys_detected, dotenv_loaded}` |
-| `POST /api/upload` | multipart `files[]` (PDF) | ingest summary + document list |
-| `POST /api/chat` | `{"message": "..."}` | `{answer, citations[], warnings[], drafted{}}` |
-| `GET  /api/approvals` | – | `{findings[], risks[]}` still `proposed` |
-| `POST /api/approvals/finding/{id}/approve` | – | the updated finding |
-| `POST /api/approvals/risk/{id}/grade` | `{"residual_score": "Medium", "mitigation": "..."}` | the graded risk |
-| `GET  /api/registers` | – | `{documents[], findings[], risks[]}` |
-| `POST /api/reset` | – | `{"ok": true}` — wipes SQLite + the vector store |
-
-Interactive API docs are served at `http://localhost:8000/docs`. All request/response
-contracts are unchanged from the pre-RAG version.
+1. **Config:** Loads `.env`, auto-detects LLM provider, and sets model parameters.
+2. **Schemas:** Defines Pydantic validation contracts (`AgentAnswer`, `Finding`, `Risk`).
+3. **Store:** Text extraction via `pypdf`, chunk storage in SQLite, and semantic vector embeddings via `fastembed` (`BAAI/bge-small-en-v1.5`) in `ChromaDB`.
+4. **Agent:** LangGraph state machine orchestrating semantic retrieval, LLM analysis, draft synthesis, and citation verification guardrails.
+5. **Approvals:** Human gate transitions items from `proposed` to `official`.
+6. **API:** FastAPI endpoints and static file serving.
 
 ---
 
-## 9. Project layout
+## ⚙️ Configuration & LLM Providers
+
+All configuration is driven by environment variables via `.env`.
+
+### Supported LLM Providers
+
+The app automatically selects the provider based on which API key is present in `.env`:
+
+| Provider | Setup in `.env` | Default Model |
+|---|---|---|
+| **Offline Mock** *(Default)* | No key required | Heuristic rule-based simulator ($0, offline) |
+| **Google Gemini** | `GEMINI_API_KEY=your_key` | `gemini-2.5-flash` |
+| **OpenAI** | `OPENAI_API_KEY=your_key` | `gpt-4o-mini` |
+| **Anthropic** | `ANTHROPIC_API_KEY=your_key` | `claude-haiku-4-5-20251001` |
+| **Ollama (Local)** | `GRC_LLM_MODE=ollama` | `qwen3:8b` (at `http://localhost:11434`) |
+
+### Environment Variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `GRC_LLM_MODE` | Provider override (`auto`, `gemini`, `openai`, `anthropic`, `ollama`, `mock`) | `auto` |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Google Gemini API key | – |
+| `OPENAI_API_KEY` | OpenAI API key | – |
+| `ANTHROPIC_API_KEY` | Anthropic API key | – |
+| `GEMINI_MODEL` | Gemini model name | `gemini-2.5-flash` |
+| `OPENAI_MODEL` | OpenAI model name | `gpt-4o-mini` |
+| `ANTHROPIC_MODEL` | Anthropic model name | `claude-haiku-4-5-20251001` |
+| `OLLAMA_MODEL` | Ollama model name | `qwen3:8b` |
+| `OLLAMA_URL` | Ollama API endpoint | `http://localhost:11434` |
+| `CHUNK_SIZE` | Text chunk character limit | `700` |
+| `CHUNK_OVERLAP` | Overlap character count between chunks | `100` |
+| `GRC_DB` | SQLite database file location | `data/grc.db` |
+| `GRC_CHROMA_DIR` | Chroma persistence directory | `data/chroma/` |
+
+---
+
+## 📡 REST API Reference
+
+| Method & Route | Request Body | Description |
+|---|---|---|
+| `GET /api/health` | – | Returns active LLM mode, provider, model, and `.env` status |
+| `POST /api/upload` | `multipart/form-data` (`files[]`) | Ingests PDF documents, chunks text, and builds vector index |
+| `POST /api/chat` | `{"message": "..."}` | Runs agent audit query; returns answer, citations, and drafts |
+| `GET /api/approvals` | – | Lists all `proposed` findings and risks awaiting approval |
+| `POST /api/approvals/finding/{id}/approve` | – | Approves a drafted finding |
+| `POST /api/approvals/risk/{id}/grade` | `{"residual_score": "...", "mitigation": "..."}` | Assigns residual score and approves risk |
+| `GET /api/registers` | – | Returns all official documents, findings, and risks |
+| `POST /api/reset` | – | Wipes SQLite database and vector store for clean restart |
+
+---
+
+## 📁 Project Structure
 
 ```
 .
-├── app/
-│   ├── main.py              entire backend: Config · Schemas · Store · Agent · Approvals · API
-│   └── static/
-│       ├── index.html       single-page UI
-│       ├── style.css
-│       └── app.js
-├── sample_docs/             generated demo PDFs
-├── data/grc.db              SQLite database (created at runtime)
-├── data/chroma/             vector store persistence (created at runtime)
-├── run.sh                   start / restart the server (macOS/Linux)
-├── run.bat                  start / restart the server (Windows Command Prompt)
-├── run.ps1                  start / restart the server (Windows PowerShell)
-├── demo.py                  sample-PDF generator + CLI end-to-end demo
-├── tests/test_v0.py         acceptance tests
-├── .env / .env.example      configuration
-└── requirements.txt
+├── app.py                   # Complete backend: Config, Schemas, Vector Store, Agent, API
+├── static/                  # Frontend SPA assets
+│   ├── index.html           # UI structure (Upload, Chat, Approvals, Registers)
+│   ├── style.css            # Modern styling & responsive layout
+│   └── app.js               # Frontend API client & reactive view logic
+├── sample_docs/             # Synthetic compliance sample PDFs
+│   ├── 1_GDPR_Art28_DPA_Requirements.pdf
+│   ├── 2_Acme_Security_and_Backup_Policy.pdf
+│   └── 3_EU_Customer_Onboarding_Assessment.pdf
+├── data/                    # Generated at runtime (git-ignored)
+│   ├── grc.db               # SQLite system of record
+│   └── chroma/              # ChromaDB vector index
+├── demo.py                  # Sample PDF generator & CLI end-to-end demo
+├── run.sh                   # Startup / restart script for macOS & Linux
+├── run.bat                  # Startup / restart script for Windows CMD
+├── run.ps1                  # Startup / restart script for Windows PowerShell
+├── tests/
+│   └── test_v0.py           # Acceptance test suite (pytest)
+├── requirements.txt         # Project dependencies
+├── .env.example             # Environment template
+└── README.md                # Documentation & quick start guide
 ```
 
 ---
 
-## 10. Troubleshooting
+## ❓ Troubleshooting
 
-| Symptom | Fix |
-|---------|-----|
-| `Form data requires "python-multipart"` | `pip install -r requirements.txt` (it's included). |
-| Chat says *"No documents have been ingested yet"* | Upload the PDFs first (Upload tab, or `python demo.py`). |
-| Chat says *"Drafted / Already tracked FND-01"* but **Approvals is empty** | You already approved that finding/risk in an earlier session — a same-titled item is reused, not duplicated. It's now in **Registers** as `official`. Click **Reset demo** to start a fresh proposed cycle. |
-| First upload is slow / needs internet | `fastembed` downloads the embedding model once and caches it locally; subsequent runs are offline and fast. |
-| Chat answer says the model "could not be reached" | The key is wrong or has no quota/model access — the exact provider error is in the answer, the `warnings`, and the server console. Check `GET /api/health`. |
-| Key is in `.env` but `GET /api/health` shows `mock` / `dotenv_loaded: false` | Fixed: `.env` is now loaded by absolute path. If still stale, confirm the file is at the repo root next to `app/` and restart the server. |
-| Port 8000 in use | Add `--port 8001` and open that port. |
-| Want a clean slate | Click **Reset demo**, or `curl -X POST localhost:8000/api/reset`, or delete `data/grc.db` and `data/chroma/`. |
-
----
-
-## 11. Scope & limitations
-
-This is a **prototype**, not production software:
-
-- `mock` mode is a heuristic stand-in for a real LLM (used offline / in tests);
-  switch to `openai`, `anthropic`, or `ollama` for genuine LLM reasoning.
-- Single-file SQLite + local Chroma, no auth, no multi-user concurrency handling.
-- Text-based PDFs only (no OCR for scanned documents).
+| Issue | Cause | Solution |
+|---|---|---|
+| **Port 8000 already in use** | An existing server instance is running on port 8000 | Run `./run.sh 8080` (macOS/Linux) or `run.bat 8080` (Windows) to use another port, or let `run.sh` / `run.bat` automatically terminate the existing process. |
+| **PowerShell script execution disabled** | Windows security policy restricts `.ps1` execution | Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in PowerShell, or use `run.bat`. |
+| **First upload or start takes time** | FastEmbed downloading embedding model | FastEmbed downloads `BAAI/bge-small-en-v1.5` (~130MB) once on first run. It is cached locally for all subsequent runs. |
+| **Chat shows offline mock answer** | API key is missing or not detected | Ensure `.env` exists in the root folder with a valid key (e.g. `GEMINI_API_KEY=...`), then verify via `http://localhost:8000/api/health`. |
+| **Want to start over completely** | Need a clean database and vector store | Click **Reset Demo** in the top navigation bar of the web UI, or run `curl -X POST http://localhost:8000/api/reset`. |
