@@ -164,6 +164,10 @@ CHUNK_OVERLAP = int(_env("CHUNK_OVERLAP", "GRC_CHUNK_OVERLAP", default="100"))
 
 DB_PATH = os.getenv("GRC_DB", os.path.join(_ROOT, "data", "grc.db"))
 CHROMA_DIR = os.getenv("GRC_CHROMA_DIR", os.path.join(os.path.dirname(DB_PATH), "chroma"))
+# FastEmbed's default cache is the OS temp dir, which macOS can wipe and which
+# forces a Hugging Face re-download on every cold start. Keep it next to the DB.
+EMBED_CACHE_DIR = os.getenv("GRC_EMBED_CACHE", os.path.join(_ROOT, "data", "fastembed"))
+os.environ.setdefault("FASTEMBED_CACHE_PATH", EMBED_CACHE_DIR)
 SAMPLE_DOCS = os.path.join(_ROOT, "sample_docs")
 os.makedirs(SAMPLE_DOCS, exist_ok=True)
 if os.path.isdir(os.path.join(_ROOT, "static")):
@@ -435,6 +439,45 @@ _vs_client = None
 _vs_collection = None
 
 
+def _seed_embed_cache_from_temp():
+    """Reuse a successful FastEmbed download that landed in the OS temp cache."""
+    import shutil
+    import tempfile
+
+    def _has_models(path):
+        try:
+            return any(name.startswith("models--") for name in os.listdir(path))
+        except OSError:
+            return False
+
+    if _has_models(EMBED_CACHE_DIR):
+        return
+    src = os.path.join(tempfile.gettempdir(), "fastembed_cache")
+    if not _has_models(src):
+        return
+    try:
+        os.makedirs(EMBED_CACHE_DIR, exist_ok=True)
+        shutil.copytree(src, EMBED_CACHE_DIR, dirs_exist_ok=True)
+        log.info("Copied embedding cache from %s -> %s", src, EMBED_CACHE_DIR)
+    except OSError as e:
+        log.warning("Could not seed embedding cache from temp: %s", e)
+
+
+def _load_text_embedding(model_name: str):
+    _seed_embed_cache_from_temp()
+    os.makedirs(EMBED_CACHE_DIR, exist_ok=True)
+    try:
+        return TextEmbedding(model_name, cache_dir=EMBED_CACHE_DIR)
+    except Exception as e:
+        log.error("Failed to initialize FastEmbed model %s: %s", model_name, e)
+        raise RuntimeError(
+            f"Failed to load embedding model '{model_name}': {e}. "
+            f"The ONNX weights are downloaded once from Hugging Face and stored in "
+            f"'{EMBED_CACHE_DIR}'. Check internet access, or set HF_TOKEN if the Hub "
+            f"is rate-limiting unauthenticated downloads."
+        ) from e
+
+
 class _FastEmbedFunction(EmbeddingFunction):
     """Chroma embedding function backed by a local fastembed ONNX model."""
 
@@ -444,14 +487,7 @@ class _FastEmbedFunction(EmbeddingFunction):
     def __call__(self, input):
         global _vs_embedder
         if _vs_embedder is None:
-            try:
-                _vs_embedder = TextEmbedding(self.model_name)
-            except Exception as e:
-                log.error("Failed to initialize FastEmbed model %s: %s", self.model_name, e)
-                raise RuntimeError(
-                    f"Failed to load embedding model '{self.model_name}'. "
-                    "Ensure internet access to Hugging Face or pre-download the model."
-                ) from e
+            _vs_embedder = _load_text_embedding(self.model_name)
         return [vec.tolist() for vec in _vs_embedder.embed(list(input))]
 
     @staticmethod
@@ -575,19 +611,48 @@ def _build_prompt(question: str, chunks: list) -> str:
     )
 
 
-@lru_cache(maxsize=1)
-def _structured_model():
-    """Build the chat model once and bind our Pydantic output schema to it."""
+@lru_cache(maxsize=8)
+def _structured_model(mode: str):
+    """Build the chat model once per provider and bind our Pydantic output schema."""
     from langchain.chat_models import init_chat_model
 
-    model = init_chat_model(LLM_MODEL, model_provider=LLM_PROVIDER, **LLM_MODEL_KWARGS)
-    return model.with_structured_output(AgentAnswer)
+    provider, model = _PROVIDER_MAP.get(mode, ("mock", "mock"))
+    kwargs: dict = {} if mode in ("mock", "ollama") else {"temperature": 0}
+    if mode == "ollama":
+        kwargs["base_url"] = OLLAMA_URL
+    return init_chat_model(model, model_provider=provider, **kwargs).with_structured_output(AgentAnswer)
+
+
+def _llm_modes_to_try() -> list:
+    """Primary provider first, then any other configured key (OpenAI is often blocked)."""
+    explicit = os.getenv("GRC_LLM_MODE")
+    if explicit and explicit != "auto":
+        return [explicit]
+    modes = []
+    if GEMINI_API_KEY:
+        modes.append("gemini")
+    if OPENAI_API_KEY:
+        modes.append("openai")
+    if ANTHROPIC_API_KEY:
+        modes.append("anthropic")
+    if LLM_MODE not in modes and LLM_MODE != "mock":
+        modes.insert(0, LLM_MODE)
+    return modes or [LLM_MODE]
 
 
 def _llm_analyze(question: str, chunks: list) -> AgentAnswer:
-    return _structured_model().invoke(
-        [("system", SYSTEM_PROMPT), ("human", _build_prompt(question, chunks))]
-    )
+    messages = [("system", SYSTEM_PROMPT), ("human", _build_prompt(question, chunks))]
+    last_err = None
+    for mode in _llm_modes_to_try():
+        if mode == "mock":
+            return _mock_analyze(question, chunks)
+        try:
+            return _structured_model(mode).invoke(messages)
+        except Exception as e:  # noqa: BLE001 — try the next configured provider
+            last_err = e
+            log.warning("LLM provider %s failed (%s): %s", mode, type(e).__name__, e)
+            continue
+    raise last_err
 
 
 _SMALLTALK = re.compile(
@@ -813,11 +878,20 @@ def analyze(question: str, chunks: list) -> dict:
         return _to_state(_llm_analyze(question, scoped))
     except Exception as e:  # noqa: BLE001 — surface any provider failure to the user
         log.exception("LLM call failed (mode=%s model=%s)", LLM_MODE, LLM_MODEL)
+        detail = f"{type(e).__name__}: {e}"
+        policy_block = "not allowed by policy" in str(e).lower() or type(e).__name__ == "PermissionDeniedError"
+        hint = (
+            "This is a policy/permission block on the provider API (key scopes, IP allowlist, "
+            "unsupported region, or a local network filter) — not a missing .env key. "
+            "Gemini is preferred when GOOGLE_API_KEY is set; otherwise add Anthropic or set "
+            "GRC_LLM_MODE=mock for the offline analyzer."
+            if policy_block else
+            f"Check the API key in {_dotenv_path} and the account's quota/access."
+        )
         return {
             "answer": (
                 f"The {LLM_MODE} model ({LLM_MODEL}) could not be reached, so no analysis was produced. "
-                f"Check the API key in {_dotenv_path} and the account's quota/access. "
-                f"Details: {type(e).__name__}: {e}"
+                f"{hint} Details: {detail}"
             ),
             "citations": [],
             "drafts": None,
@@ -1104,7 +1178,7 @@ if os.path.isdir(STATIC_DIR):
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.environ.get("PORT", "8000"))
+    port = int(os.environ.get("PORT", "8001"))
     reload = os.environ.get("RELOAD", "true").lower() in ("1", "true", "yes")
     print(f"[grc] Starting server at http://localhost:{port} (reload={reload})")
     uvicorn.run("app:app", host="0.0.0.0", port=port, reload=reload)

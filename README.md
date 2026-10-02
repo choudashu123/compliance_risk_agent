@@ -2,6 +2,7 @@
 Doc: https://docs.google.com/document/d/1zWiG5zQnSBpv6LTRWZQ97JHhd9jl5gssqTWUUeSsAgk/edit?usp=sharing
 Video: https://youtu.be/rdy83hbUnU0
 Github repo: https://github.com/choudashu123/compliance_risk_agent.git
+PPT: https://docs.google.com/document/d/1-moLZHFtG7qh5wHritd--76WtagnQ089dfYtSHWdt64/edit?usp=sharing
 
 
 # 🛡️ Compliance & Risk Agent (GRC)
@@ -307,6 +308,8 @@ The app automatically selects the provider based on which API key is present in 
 |---|---|---|
 | **Port 8000 already in use** | An existing server instance is running on port 8000 | Run `./run.sh 8080` (macOS/Linux) or `run.bat 8080` (Windows) to use another port, or let `run.sh` / `run.bat` automatically terminate the existing process. |
 | **PowerShell script execution disabled** | Windows security policy restricts `.ps1` execution | Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in PowerShell, or use `run.bat`. |
-| **First upload or start takes time** | FastEmbed downloading embedding model | FastEmbed downloads `BAAI/bge-small-en-v1.5` (~130MB) once on first run. It is cached locally for all subsequent runs. |
+| **First upload or start takes time** | FastEmbed downloading embedding model | FastEmbed downloads `BAAI/bge-small-en-v1.5` (~130MB) once on first run and caches it in `data/fastembed/`. Later runs are offline. |
+| **HTTP 500: Failed to load embedding model** | No Hugging Face access, Hub rate limit, or a wiped OS temp cache | Confirm internet access (or set `HF_TOKEN` in `.env` if the Hub is rate-limiting you). The model is stored in `data/fastembed/` (`GRC_EMBED_CACHE` to override) so the next upload does not re-download. |
 | **Chat shows offline mock answer** | API key is missing or not detected | Ensure `.env` exists in the root folder with a valid key (e.g. `GEMINI_API_KEY=...`), then verify via `http://localhost:8000/api/health`. |
+| **Chat: OpenAI / gpt-4o-mini not allowed by policy** | `api.openai.com` blocked (key scopes, IP allowlist, region, or local network policy) | Use Gemini instead: set `GOOGLE_API_KEY` in `.env` (auto-selected over OpenAI). Restart the server and check `/api/health` shows `mode=gemini`. |
 | **Want to start over completely** | Need a clean database and vector store | Click **Reset Demo** in the top navigation bar of the web UI, or run `curl -X POST http://localhost:8000/api/reset`. |

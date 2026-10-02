@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Architecture Diagram - Compliance & Risk Agent</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 30px;
+      background: #f8fafc;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .header {
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    h1 {
+      margin: 0 0 10px 0;
+      color: #0f172a;
+      font-size: 24px;
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    button {
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      background: #2563eb;
+      color: #fff;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #1d4ed8;
+    }
+    .card {
+      background: #ffffff;
+      padding: 40px;
+      border-radius: 12px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+      border: 1px solid #e2e8f0;
+      max-width: 95vw;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Architecture Diagram - Compliance & Risk Agent</h1>
+    <div class="actions">
+      <button onclick="downloadSVG()">Download as SVG (Vector / High-Res)</button>
+      <button onclick="downloadPNG()">Download as PNG (For PPT)</button>
+    </div>
+  </div>
+
+  <div class="card" id="diagram-container">
+    <pre class="mermaid" id="mermaid-code">
+flowchart TD
+    User["👤 Compliance Officer & Reviewer"]
+    
+    UI["Web UI (Upload · Chat · Approvals · Registers)"]
+    User <--> UI
+
+    subgraph Backend["FastAPI Backend (app.py)"]
+        subgraph IngestPipe["1. Ingestion Pipeline"]
+            Ingest["PDF Parser & Chunker\n(pypdf · 700 chars / 100 overlap)"]
+            FastEmbed["Local Embedder\n(BAAI/bge-small-en-v1.5)"]
+            Ingest --> FastEmbed
+        end
+
+        subgraph Agent["2. LangGraph Audit Agent"]
+            N1["① Retrieve\n(Top 6 semantic chunks)"]
+            N2["② Analyze\n(Structured AgentAnswer)"]
+            N3["③ Draft\n(FND-xx & RSK-xx · proposed)"]
+            N4["④ Guard\n(Validate citations · drop fakes)"]
+
+            N1 --> N2 --> N3 --> N4
+        end
+
+        subgraph HumanGate["3. Governance Gate"]
+            Approve["Human Review & Residual Grading\n(Low / Medium / High · proposed ➔ official)"]
+        end
+    end
+
+    subgraph Storage["Storage Layer"]
+        SQLite[("SQLite (grc.db)\nDocuments · Chunks · Findings · Risks")]
+        Chroma[("ChromaDB (/data/chroma)\nVector Index")]
+    end
+
+    subgraph Providers["LLM Reasoning Layer"]
+        LLM["Gemini · OpenAI · Claude · Ollama · Offline Mock"]
+    end
+
+    UI -- "POST /api/upload" --> Ingest
+    FastEmbed --> Chroma
+    Ingest --> SQLite
+
+    UI -- "POST /api/chat" --> N1
+    N1 <--> Chroma
+    N2 <--> LLM
+    N3 --> SQLite
+    N4 <--> SQLite
+
+    UI -- "POST /api/approvals" --> Approve
+    Approve --> SQLite
+    SQLite -. "Official Registers" .-> UI
+
+    classDef highlight fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    classDef agentBox fill:#ede7f6,stroke:#512da8,stroke-width:1.5px;
+    classDef storageBox fill:#f1f8e9,stroke:#388e3c,stroke-width:1.5px;
+    
+    class UI,User highlight;
+    class N1,N2,N3,N4 agentBox;
+    class SQLite,Chroma storageBox;
+    </pre>
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+
+    function downloadSVG() {
+      const svg = document.querySelector("#diagram-container svg");
+      if (!svg) return alert("Please wait for diagram to render");
+      const serializer = new XMLSerializer();
+      let source = serializer.serializeToString(svg);
+      source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
+      const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(source);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "architecture_diagram.svg";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    function downloadPNG() {
+      const svg = document.querySelector("#diagram-container svg");
+      if (!svg) return alert("Please wait for diagram to render");
+      const serializer = new XMLSerializer();
+      const svgStr = serializer.serializeToString(svg);
+      const canvas = document.createElement("canvas");
+      const img = new Image();
+      
+      const bbox = svg.getBoundingClientRect();
+      const scale = 2; // high-resolution for PPT
+      canvas.width = (bbox.width || 1000) * scale;
+      canvas.height = (bbox.height || 800) * scale;
+      const ctx = canvas.getContext("2d");
+      
+      img.onload = function() {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const a = document.createElement("a");
+        a.href = canvas.toDataURL("image/png");
+        a.download = "architecture_diagram.png";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      };
+      img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgStr)));
+    }
+  </script>
+</body>
+</html>
